@@ -1,0 +1,132 @@
+#!/bin/bash
+
+group="global.gns"
+cellframe_node_cli_path="/opt/cellframe-node/bin/cellframe-node-cli"
+expected_address_length=104
+
+# Function to print wallet address information
+print_wallet_info() {
+    local key="$1"
+    local regdate="$2"
+    local valuecell="$3"
+    local valuekel="$4"
+
+    echo "----------------------"
+    echo "Alias: $key"
+    echo "Registration date        : $regdate"
+
+    addresscell=$(echo "$valuecell" | tail -c 106 | tr -cd '[:alnum:]')
+    addresskel=$(echo "$valuekel" | tail -c 106 | tr -cd '[:alnum:]')
+
+    if [ ${#addresscell} -eq 104 ]; then
+        echo "Cellframe Wallet Address : $addresscell"
+
+   else
+        echo "Invalid Cellframe Wallet Address $addresscell (Length: ${#addresscell})"
+    fi
+
+    if [ ${#addresskel} -eq 104 ]; then
+        echo "KelVPN Wallet Address    : $addresskel"
+    else
+        echo "Invalid KelVPN Wallet Address $addresskel (Length: ${#addresskel})"
+    fi
+
+    echo "----------------------"
+}
+# Function to add alias and wallet addresses
+add_wallet_info() {
+    local alias="$1"
+    local addresscell="$2"
+    local addresskel="$3"
+
+    # Validate input (add more validation as needed)
+    if [ -z "$alias" ] || [ -z "$addresscell" ] || [ -z "$addresskel" ]; then
+        echo "Invalid input. Please provide alias, Cellframe address, and KelVPN address."
+        exit 1
+    fi
+
+    # Check if addresses have the expected length
+    if [ ${#addresscell} -ne $expected_address_length ] || [ ${#addresskel} -ne $expected_address_length ]; then
+        echo "Invalid address length. Addresses must be $expected_address_length characters long."
+        exit 1
+    fi
+
+    # Generate registration date in DDMMYYYY format
+    regdate=$(date +'%d%m%Y')
+
+    # Add data to the global database
+    "$cellframe_node_cli_path" global_db write -group "$group" -key "$alias.cell" -value "$addresscell"
+    "$cellframe_node_cli_path" global_db write -group "$group" -key "$alias.kel" -value "$addresskel"
+    "$cellframe_node_cli_path" global_db write -group "$group" -key "$alias" -value "$regdate"
+}
+
+# Check if add option is specified
+if [ "$1" == "-a" ]; then
+    if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+        echo "Usage:"
+        echo " $0 -a alias cellframe_address kelvpn_address"
+        exit 1
+    fi
+
+    alias_to_add="$2"
+    cellframe_address_to_add="$3"
+    kelvpn_address_to_add="$4"
+
+    add_wallet_info "$alias_to_add" "$cellframe_address_to_add" "$kelvpn_address_to_add"
+    echo "Wallet information added successfully for alias: $alias_to_add"
+    exit 0
+fi
+# Check if reverse search is specified
+if [ "$1" == "-r" ]; then
+    if [ -z "$2" ]; then
+        echo "Usage:"
+        echo " $0 -r address"
+        echo " $0 alias"
+        exit 1
+    fi
+
+    reverse_address="$2"
+    keys=$("$cellframe_node_cli_path" global_db get_keys -group "$group" | grep -E "^[^.]+$" | head -n -1)
+
+    while IFS= read -r key; do
+        valuecell=$("$cellframe_node_cli_path" global_db read -group "$group" -key "$key.cell")
+        valuekel=$("$cellframe_node_cli_path" global_db read -group "$group" -key "$key.kel")
+        value=$("$cellframe_node_cli_path" global_db read -group "$group" -key "$key")
+
+        addresskel=$(echo "$valuekel" | tail -c 106 | tr -cd '[:alnum:]')
+        addresscell=$(echo "$valuecell" | tail -c 106 | tr -cd '[:alnum:]')
+        regdate=$(echo "$value" | awk '/data:/ {getline; gsub(/^[ \t]+|[ \t]+$/, ""); print}')
+
+        if [ "$addresskel" == "$reverse_address" ] || [ "$addresscell" == "$reverse_address" ]; then
+            print_wallet_info "$key" "$regdate" "$valuecell" "$valuekel"
+        fi
+
+    done <<< "$keys"
+
+    exit
+fi
+
+# Normal search logic
+if [ -z "$1" ]; then
+    echo "Usage:"
+    echo " $0 -r address"
+    echo " $0 alias"
+    exit 1
+else
+    keys=$("$cellframe_node_cli_path" global_db get_keys -group "$group" | grep "$1" | grep -E "^[^.]+$")
+fi
+
+while IFS= read -r key; do
+    if [ -z "$key" ]; then
+        continue
+    fi
+
+    value=$("$cellframe_node_cli_path" global_db read -group "$group" -key "$key")
+    regdate=$(echo "$value" | awk '/data:/ {getline; gsub(/^[ \t]+|[ \t]+$/, ""); print}')
+
+    valuecell=$("$cellframe_node_cli_path" global_db read -group "$group" -key "$key.cell")
+    valuekel=$("$cellframe_node_cli_path" global_db read -group "$group" -key "$key.kel")
+
+    print_wallet_info "$key" "$regdate" "$valuecell" "$valuekel"
+
+done <<< "$keys"
