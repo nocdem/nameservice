@@ -1,2 +1,2 @@
-# nameserver
-skeches about a nameserver
+# nameservice
+skeches about a nameserice
