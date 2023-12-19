@@ -11,4 +11,5 @@ adds cellframe and kelvpn wallet address with alias
 searches the db for that alias
 
 put inside cgi-bin/search.cgi
+
 searches the db 
